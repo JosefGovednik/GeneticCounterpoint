@@ -10,7 +10,7 @@ import numpy as np
 
 # num of generations and number of notes to be mutated every evolution step
 GENERATIONS = 1000
-MUT_AMOUNT = (1, 3)   # low,high of possible notes to be mutated every iteration
+MUT_AMOUNT = (1, 4)   # low,high of possible notes to be mutated every iteration
 
 # key/scale types
 KEY = 'C'
@@ -26,6 +26,7 @@ SCALE_PATRNS = {
     'major': [0, 2, 4, 5, 7, 9, 11],
     'minor': [0, 2, 3, 5, 7, 8, 10],
     'harmonic_minor': [0, 2, 3, 5, 7, 8, 11],
+    'melodic_minor': [0, 2, 3, 5, 7, 9, 11],
     'pentatonic_major': [0, 2, 4, 7, 9],
     'pentatonic_minor': [0, 3, 5, 7, 10],
     'blues': [0, 3, 5, 6, 7, 10],
@@ -36,10 +37,10 @@ SCALE_VALS = SCALE_PATRNS[SCALE_TYPE]
 
 # compose vals ---
 TIME_SIG = '4/4'
-TEMPO = 120
+TEMPO = 112
 
 # measure vals ---
-MEASURES = 4
+MEASURES = 8
 BEATS_PER_MEASURE = 4
 TOTAL_NOTES = MEASURES * BEATS_PER_MEASURE
 
@@ -55,7 +56,7 @@ ALL_SPAN = 12       # 12 == 1 octave
 
 # range for each voice line itself. this isnt as volatile as the one above,
 # but can still lead to unexpected behavior I haven't accounted for.
-INDV_SPAN = 5
+INDV_SPAN = 8
 
 # this will then auto calculate the range of each voice based on the center and indv spans.
 VOICES_RANGE = {
@@ -80,30 +81,30 @@ END_NOTES = {
 ALT_MAX_CHECK = 4
 
 # --- HORIZONTAL FITNESS WEIGHTS -----------------
-SAME_NOTE_WGT = 1
+SAME_NOTE_WGT = 0
 UNIQUE_WGT = 4
 STEPWISE_WGT = 4
-SM_JUMP_WGT = 1
-MD_JUMP_WGT = -1
-LG_JUMP_WGT = -8
+SM_JUMP_WGT = 2
+MD_JUMP_WGT = 0
+LG_JUMP_WGT = -3
 ALTING_WGT = -5
 CONTOUR_WGT = 2
 
 # --- HARMONIC FITNESS WEIGHTS -----------------
 UNISON_WGT = -15
-THIRD_WGT = 10
+THIRD_WGT = 12
 SIXTH_WGT = 10
-FOURTH_WGT = 5
-FIFTH_WGT = 6
-SEVENTH_WGT = 3
-SECOND_WGT = -15
+FOURTH_WGT = 6
+FIFTH_WGT = 8
+SEVENTH_WGT = -3
+SECOND_WGT = -5
 TRITONE_WGT = -10
 
 # ***************************************************************
 # ----------------------- MUSIC GENOME CLASS ------------------------------
 # ***************************************************************
 
-# defs and classe for the musical "genome"
+# defs and classes for the musical "genome"
 class musicGenome:
     def __init__(self):
         # 16 random values for 16 random notes
