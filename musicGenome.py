@@ -1,6 +1,8 @@
 from music21 import *
 import random
 import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
 
 # ***************************************************************
 # ----------------------- GLOBAL VARS ------------------------------
@@ -454,6 +456,79 @@ def evolveMusicGenome():
 # ...
 
 # ***************************************************************
+# ----------------------- VOICE PLOT ------------------------------
+# ***************************************************************
+
+def plotVoices(genome, title='Voice Lines'):
+    VOICE_COLORS = {
+        'melody': '#E63946',   # red
+        'upper':  '#2A9D8F',   # teal
+        'middle': '#E9C46A',   # yellow
+        'bass':   '#457B9D',   # blue
+    }
+
+    melodyMIDI = genomeToMIDI(genome.melody, 'melody')
+    upperMIDI  = genomeToMIDI(genome.upper,  'upper')
+    middleMIDI = genomeToMIDI(genome.middle, 'middle')
+    bassMIDI   = genomeToMIDI(genome.bass,   'bass')
+
+    voiceData = {
+        'melody': melodyMIDI,
+        'upper':  upperMIDI,
+        'middle': middleMIDI,
+        'bass':   bassMIDI,
+    }
+
+    # overall MIDI range across all voices
+    allNotes = np.concatenate(list(voiceData.values()))
+    yMin = int(allNotes.min()) - 1
+    yMax = int(allNotes.max()) + 1
+
+    fig, ax = plt.subplots(figsize=(14, 5))
+
+    for voiceName, midiNotes in voiceData.items():
+        color = VOICE_COLORS[voiceName]
+        for beat, midiNote in enumerate(midiNotes):
+            rect = mpatches.FancyBboxPatch(
+                (beat + 0.05, midiNote - 0.45),
+                0.9, 0.9,
+                boxstyle='round,pad=0.05',
+                linewidth=0,
+                facecolor=color,
+                alpha=0.85,
+            )
+            ax.add_patch(rect)
+
+    # beat grid lines
+    for beat in range(TOTAL_NOTES + 1):
+        ax.axvline(beat, color='#cccccc', linewidth=0.4, zorder=0)
+
+    # measure bar lines
+    for m in range(MEASURES + 1):
+        ax.axvline(m * BEATS_PER_MEASURE, color='#888888', linewidth=1.0, zorder=1)
+
+    ax.set_xlim(0, TOTAL_NOTES)
+    ax.set_ylim(yMin, yMax + 1)
+    ax.set_xlabel('Beat')
+    ax.set_ylabel('MIDI Pitch')
+    ax.set_title(title)
+
+    # y-tick labels as note names
+    pitchRange = range(yMin, yMax + 2)
+    ax.set_yticks(list(pitchRange))
+    ax.set_yticklabels([pitch.Pitch(midi=p).nameWithOctave if yMin <= p <= yMax + 1 else '' for p in pitchRange], fontsize=7)
+
+    # x-ticks at measure starts
+    ax.set_xticks([m * BEATS_PER_MEASURE for m in range(MEASURES + 1)])
+    ax.set_xticklabels([f'M{m+1}' if m < MEASURES else '' for m in range(MEASURES + 1)])
+
+    legend_patches = [mpatches.Patch(color=VOICE_COLORS[v], label=v.capitalize()) for v in VOICE_COLORS]
+    ax.legend(handles=legend_patches, loc='upper right')
+
+    plt.tight_layout()
+    plt.show()
+
+# ***************************************************************
 # ----------------------- MAIN LOOP ------------------------------
 # ***************************************************************
 # heres the main loop for the overall genome generation -> evoloution ->
@@ -513,6 +588,9 @@ fullComp.append(upperOnly)
 fullComp.append(middleOnly)
 fullComp.append(bassOnly)
 fullComp.write('midi', 'full.mid')
+
+# plot all four voice lines
+plotVoices(evolvedComp, title='Evolved Composition — Voice Lines')
 
 # run the PSO evolution chord loop
 # ...
