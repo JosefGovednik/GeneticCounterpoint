@@ -1,8 +1,6 @@
 from music21 import *
 import random
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
 
 # ***************************************************************
 # ----------------------- GLOBAL VARS ------------------------------
@@ -28,7 +26,6 @@ SCALE_PATRNS = {
     'major': [0, 2, 4, 5, 7, 9, 11],
     'minor': [0, 2, 3, 5, 7, 8, 10],
     'harmonic_minor': [0, 2, 3, 5, 7, 8, 11],
-    'melodic_minor': [0, 2, 3, 5, 7, 9, 11],
     'pentatonic_major': [0, 2, 4, 7, 9],
     'pentatonic_minor': [0, 3, 5, 7, 10],
     'blues': [0, 3, 5, 6, 7, 10],
@@ -37,12 +34,23 @@ SCALE_PATRNS = {
 }
 SCALE_VALS = SCALE_PATRNS[SCALE_TYPE] 
 
+# these are the chord definitions for what im checking later in the PSO
+DIATONIC_CHORDS = {
+    'I':   (0, 4, 7),    # C major   (C-E-G)
+    'ii':  (2, 5, 9),    # D minor   (D-F-A)
+    'iii': (4, 7, 11),   # E minor   (E-G-B)
+    'IV':  (5, 9, 0),    # F major   (F-A-C)
+    'V':   (7, 11, 2),   # G major   (G-B-D)
+    'vi':  (9, 0, 4),    # A minor   (A-C-E)
+    'vii': (11, 2, 5),   # B dim     (B-D-F)
+}
+
 # compose vals ---
 TIME_SIG = '4/4'
-TEMPO = 112
+TEMPO = 120
 
 # measure vals ---
-MEASURES = 8
+MEASURES = 4
 BEATS_PER_MEASURE = 4
 TOTAL_NOTES = MEASURES * BEATS_PER_MEASURE
 
@@ -60,12 +68,16 @@ ALL_SPAN = 12       # 12 == 1 octave
 # but can still lead to unexpected behavior I haven't accounted for.
 INDV_SPAN = 8
 
+# added new bass span value! chord progs were getting
+# stuck due to bass centering, so I made it so bass could move more in a given range
+BASS_SPAN = 11
+
 # this will then auto calculate the range of each voice based on the center and indv spans.
 VOICES_RANGE = {
     'melody': (VOICE_CENTER+1, VOICE_CENTER+1 + INDV_SPAN),
     'upper': (VOICE_CENTER-2, VOICE_CENTER-2 + INDV_SPAN),
     'middle': (VOICE_CENTER-4, VOICE_CENTER-4 + INDV_SPAN),
-    'bass': (VOICE_CENTER-6, VOICE_CENTER-6 + INDV_SPAN),
+    'bass': (VOICE_CENTER-6, VOICE_CENTER-6 + BASS_SPAN),
 }
 
 # this auto forms a major triad to resolve on based on the bass bottom bass note.
@@ -98,15 +110,125 @@ THIRD_WGT = 12
 SIXTH_WGT = 10
 FOURTH_WGT = 6
 FIFTH_WGT = 8
-SEVENTH_WGT = -3
+SEVENTH_WGT = 3
 SECOND_WGT = -5
 TRITONE_WGT = -10
+
+# ***************************************************************
+# ----------------------- 2-STAGE PSO PARAMS ------------------------------
+# ***************************************************************
+# stage 1 vars
+PSO_S1_PARTICLES = 50
+PSO_S1_ITERATIONS = 500
+PSO_S1_MAX_MOVE = 3 # +/- this many semitones up or down
+
+# stage 2 vars
+PSO_S2_PARTICLES = 50
+PSO_S2_ITERATIONS = 500
+
+# intertia settings for PSO
+# ideally you want to go high to low to encourage localization
+# post-exploration
+PSO_INERTIA_START = 0.9
+PSO_INERTIA_END = 0.4
+
+# chord weights
+CHORD_UNIQUE_WGT = 20  # this is to reward 3 or 4 unique notes in the chord to promote variation and not the same note
+CHORD_THIN_WGT = -10
+CHORD_THIRD_WGT = 18
+CHORD_FIFTH_WGT = 15
+CHORD_SIXTH_WGT = 15
+CHORD_OCTAVE_WGT = 10
+CHORD_CLUSTER_WGT = -50
+CHORD_TRITONE_WGT = -35
+
+# voice leading weights and params
+SMOOTH_LEADING_WGT = 15
+LEAP_LEADING_WGT = -25
+MEASURE_LEAP_LEAP_WGT = -40
+
+# voice leading params for PSO
+# - Without this, it didnt really have a great way of figuring out
+# what was good across multiple measures, instead of just neighboring ones
+# for 2, 3, and 4 measures respectively
+PROG_QUALITY_2 = 150
+PROG_QUALITY_3 = 250
+PROG_QUALITY_4 = 350
+
+# measure-local 2 chord prog weights
+P_1_5_WGT = 40
+P_5_1_WGT = 50
+P_4_1_WGT = 35
+P_1_4_WGT = 30
+P_2_5_WGT = 45
+P_5_4_WGT = 30
+P_6_4_WGT = 25
+P_4_5_WGT = 35
+
+
+# measure-local 3 chord prog weights
+P_1_5_1_WGT = 80
+P_1_4_5_WGT = 75
+P_2_5_1_WGT = 85
+P_1_6_4_WGT = 70
+P_6_4_5_WGT = 72
+
+
+# measure-local 4 chord prog weights
+P_1_5_6_4_WGT = 120
+P_6_4_1_5_WGT = 115
+P_1_6_4_5_WGT = 110
+P_1_4_5_1_WGT = 120
+
+
+# 2 chord prog weights
+prog2_map = {
+    ('I', 'V'): P_1_5_WGT,
+    ('V', 'I'): P_5_1_WGT,
+    ('IV', 'I'): P_4_1_WGT,
+    ('I', 'IV'): P_1_4_WGT,
+    ('ii', 'V'): P_2_5_WGT,
+    ('V', 'IV'): P_5_4_WGT,
+     ('vi', 'IV'): P_6_4_WGT,
+    ('IV', 'V'): P_4_5_WGT,
+}
+
+# 3 chord prog weights
+prog3_map = {
+    ('I', 'V', 'I'): P_1_5_1_WGT,
+    ('I', 'IV', 'V'): P_1_4_5_WGT,
+    ('ii', 'V', 'I'): P_2_5_1_WGT,
+    ('I', 'vi', 'IV'): P_1_6_4_WGT,
+    ('vi', 'IV', 'V'): P_6_4_5_WGT,
+}
+
+# 4 chord prog weights
+prog4_map = {
+    ('I', 'V', 'vi', 'IV'): P_1_5_6_4_WGT,
+    ('vi', 'IV', 'I', 'V'): P_6_4_1_5_WGT,
+    ('I', 'vi', 'IV', 'V'): P_1_6_4_5_WGT,
+    ('I', 'IV', 'V', 'I'): P_1_4_5_1_WGT,
+}
+
+# id chord global vars
+# again Josed if you think any of these values should be changed when
+# you test or see this fr change any and all of them. Literally just did this
+# by listening and im not confident in these vals lol. They did sound pretty decent
+# from my testing though.
+ID_CHORDS_WGT = 3
+ID_NONCHORDS_WGT = -2
+ID_BASS_ROOT_WGT = 4
+ID_BASS_INV_WGT = 1
+ID_BASS_OFF_WGT = -2
+ID_TRIAD_WGT = 2
+ID_MIN_CONF = 2
+
 
 # ***************************************************************
 # ----------------------- MUSIC GENOME CLASS ------------------------------
 # ***************************************************************
 
-# defs and classes for the musical "genome"
+# defs and classe for the musical "genome"
 class musicGenome:
     def __init__(self):
         # 16 random values for 16 random notes
@@ -149,6 +271,92 @@ class musicGenome:
         copy.fitness = self.fitness
         return copy
     
+
+# ***************************************************************
+# ----------------------- Stage 1&2 PSO CLASSES ------------------------------
+# ***************************************************************
+# I have a seperate particle class for stage 1 and stage 2,
+# as both have different goals and do totally different things
+class stage1Particle:
+    def __init__(self):
+        # give each line a range where the note can move in semitones,
+        # and also make sure it stays in the scale we're in so 
+        # nothing completely insane happens
+        self.pos = {
+            'melody': np.random.uniform(-PSO_S1_MAX_MOVE, PSO_S1_MAX_MOVE, TOTAL_NOTES),
+            'upper': np.random.uniform(-PSO_S1_MAX_MOVE, PSO_S1_MAX_MOVE, TOTAL_NOTES),
+            'middle': np.random.uniform(-PSO_S1_MAX_MOVE, PSO_S1_MAX_MOVE, TOTAL_NOTES),
+            'bass': np.random.uniform(-PSO_S1_MAX_MOVE, PSO_S1_MAX_MOVE, TOTAL_NOTES),
+        }
+
+        # velocity param, which changes how fast each line ends
+        # up changing which works with the interia val as well.
+        self.velocity = {
+            'melody': np.random.uniform(-1, 1, TOTAL_NOTES),
+            'upper': np.random.uniform(-1, 1, TOTAL_NOTES),
+            'middle': np.random.uniform(-1, 1, TOTAL_NOTES),
+            'bass': np.random.uniform(-1, 1, TOTAL_NOTES),
+        }
+
+        # personal bests, or the personal best position and fit
+        # that this ind particle has found so far
+        self.pBestPos = {k: v.copy() for k, v in self.pos.items()}
+        self.pBestFit = -float('inf')
+        self.fitness = 0.0
+
+class stage2Particle:
+    def __init__(self):
+        # start with a random rearrangment of the measures to begin
+        self.order = list(range(MEASURES))
+        random.shuffle(self.order)
+
+        # pb: personal best order and fit that this ind particle has found
+        self.pBestOrder = self.order.copy()
+        self.pBestFit = -float('inf')
+        self.fitness = 0.0
+
+    # method to swap two measures with each other
+    # this is the real meat and potatoes of stage 2 in tandem with 
+    # the next method
+    def swap(self):
+        i, j = random.sample(range(MEASURES), 2)
+        self.order[i], self.order[j] = self.order[j], self.order[i]
+
+    # another huge piece, swap stuff further to actually promote
+    # good overall progressions across measures, and this is how the particles,
+    # actually follow their own or global best
+    def moveBetter(self, idealOrder, prob):
+        for i in range(MEASURES):
+            # basically just its not the ideal order, and we're in
+            # the probability thrreshold
+            if self.order[i] != idealOrder[i] and random.random() < prob:
+                # find where the ideal value is for the current given order
+                j = self.order.index(idealOrder[i])
+                # then swap the order to match the ideal order for this position
+                self.order[i], self.order[j] = self.order[j], self.order[i]
+
+# ***************************************************************
+# ----------------------- SCALE SNAP HELP FUNC ------------------------------
+# ***************************************************************
+# scale was consistently out of range, so instead of trying to make
+# it bulletproof from the start, I'm adding a check to the end to make sure it
+# actually snaps to whatever scale you have set.
+def scaleSnapper(rawNote, minRange, maxRange):
+    # build the temp valid scale range notes first
+    candidates = []
+    for notes in range(int(minRange), int(maxRange)+1):
+        if (notes%12) in SCALE_VALS:
+            candidates.append(notes)
+
+    # for some reasone if this breaks we can return the closest notes within reason
+    if not candidates:
+        return max(minRange, min(maxRange, rawNote))
+    
+    # but if we're good then return all the nearest notes in the scale
+    # that we "snap" to
+    return min(candidates, key=lambda x: abs(x-rawNote))
+
+
 # ***************************************************************
 # ----------------------- GENOME TO MIDI ------------------------------
 # ***************************************************************
@@ -181,26 +389,11 @@ def genomeToMIDI(genome, voiceName):
         # map the random music genome individual gene/note
         # to a MIDI note, the calculation:
         # rawMIDI = 67 + (gene * 5) = 69.5 round down for int to 69 -> A4
-        rawMIDI = int(minRange + (gene * (maxRange-minRange)))
+        rawMIDI = int(round(minRange + (gene * (maxRange-minRange))))
 
-        # apply the key to the midi notes now that we setup earlier
-        # C scale here for now!!! ***
-        scaleMod = rawMIDI%12 # 12 cause keys on the piano
-
-        # based on the midi note now, we need to find the closest
-        # note that exists in the scale (C scale for now!!!)
-        closestNote = min(SCALE_VALS, key=lambda x: abs(x - scaleMod))
-
-        # now we have the modifier and the closest note,
-        # so apply the swap to the closest note based on these
-        # these things
-        scaleApply = rawMIDI + (closestNote - scaleMod)
-
-        # *** additional safety check here!
-        # i was noticing sometimes it would get funky if I didnt
-        # have this safety measure to make sure it doesnt go to a note
-        # thats out of the range for the voice!
-        checkedNote = max(minRange, min(maxRange, scaleApply))
+        # fasttrack for scale snapping, as we can use our helper function
+        # to just snap all the notes here to the closest based on what scale is
+        checkedNote = scaleSnapper(rawMIDI, minRange, maxRange)
 
         # now just add the checked note to the midi list
         midi.append(checkedNote)
@@ -243,6 +436,34 @@ def genomeToMus21(genome, voiceName):
 
     # return it in its final format finally.
     return music
+
+# ***************************************************************
+# ----------------------- MIDI TO GENOME CONVERTER------------------------------
+# ***************************************************************
+# im basically making this function in case I need it later, or have a use case
+# for it in the future
+# New: This actually helps with the PSO stuff, and can be used
+# to put it back from midi to the genome so we can see whats going on in it.
+def midiToGenome(midiComp):
+    translatedGenome = musicGenome()
+
+    for voice in ['melody', 'upper', 'middle', 'bass']:
+        midi = midiComp[voice]
+        minRange, maxRange = VOICES_RANGE[voice]
+
+        # move each midi value transalated back to a genome val 0-1
+        genes = []
+        for note in midi:
+            gene = (note-minRange) / (maxRange-minRange)
+            gene = max(0.0, min(1.0, gene))
+            genes.append(gene)
+
+        # set it to the music genome
+        setattr(translatedGenome, voice, np.array(genes))
+        
+    # and return it
+    return translatedGenome
+
 
 # ***************************************************************
 # ----------------------- HELPER FUCNTION FOR ALTERNATING CHECKS ------------------------------
@@ -322,7 +543,7 @@ def fullCompFitness(genome):
             # of, but these numbers seem ok? But im still not 
             # 100% on all of these.
             if noteInterval == 0:
-                fitness -= SAME_NOTE_WGT # same note
+                fitness += SAME_NOTE_WGT # same note
             elif noteInterval <= 2:
                 fitness += STEPWISE_WGT # step motion. Im a fan of this based on what ive seen
                 moveNum += 1
@@ -401,7 +622,7 @@ def fullCompFitness(genome):
                 fitness += FOURTH_WGT
             elif noteIntervalClassif == 7:     # fifth
                 fitness += FIFTH_WGT
-            elif noteIntervalClassif in [10,11]: # seventsh
+            elif noteIntervalClassif in [10,11]: # sprogsh
                 fitness += SEVENTH_WGT
             elif noteIntervalClassif in [1,2]: # seconds
                 fitness += SECOND_WGT
@@ -416,6 +637,238 @@ def fullCompFitness(genome):
 
 # Note::: ************
 # IM THINKING ABOUT MAKING THIS A TOURNAMENT SELECTION MAYBE!???????
+
+# ***************************************************************
+# ----------------------- PSO FITNESS FUNCS ------------------------------
+# ***************************************************************
+# this func checks the leading voice quality so we can actually see
+# how well notes connect overall, especially over the span of measures
+def leadVoiceEval(midiComp):
+    fitness = 0.0
+    voices = [
+        midiComp['melody'],
+        midiComp['upper'],
+        midiComp['middle'],
+        midiComp['bass'],
+    ]
+
+    # for each voice, reward different types of motion from notes
+    # and from measure to measure to penalize huge jumps that
+    # feel abrupt and weird
+    for voice in voices:
+        for i in range(1, TOTAL_NOTES):
+            # get the interval from voice to voice
+            interval = abs(voice[i] - voice[i-1])
+
+            # we like smooth step-wsie motion
+            if interval <= 2:
+                fitness += SMOOTH_LEADING_WGT
+            # we do not however like big jumps
+            elif interval >= 7:
+                fitness += LEAP_LEADING_WGT
+
+            # and we ESPECIALLY dont like big jumps
+            # from measure to measure. This is what I found during testing
+            # sounded reallllly bad. Measure cohesion drastically improved
+            # the PSO double pass sound quality
+            if(i % BEATS_PER_MEASURE == 0) and interval >= 5:
+                fitness += MEASURE_LEAP_LEAP_WGT
+    return fitness
+
+# this is for the stage 1 PSO pass, and it looks at
+# the veritcal chord quality, and will shift things around 
+# in a globally defined local range. This is the local swarm part basically.
+def stage1ChordOptimize(midiComp):
+    fitness = 0.0
+
+    melodyNotes = midiComp['melody']
+    upperNotes = midiComp['upper']
+    middleNotes = midiComp['middle']
+    bassNotes = midiComp['bass']
+
+    # go through every individual beat and look at it like a chord
+    for i in range(TOTAL_NOTES):
+        chord = [melodyNotes[i], upperNotes[i], middleNotes[i], bassNotes[i]]
+
+        # look at how "full" the chord is, or how many unique notes it has
+        # *** I'm still a little iffy on this one, but I thought I'd
+        # at least include it to promote diversity on the initial PSO pass
+        uniqueNotes = len(set(chord))
+        if uniqueNotes >= 3:
+            fitness += CHORD_UNIQUE_WGT
+        elif uniqueNotes == 2:
+            fitness += CHORD_THIN_WGT
+
+        # now check the chord intervals to further refine the process
+        # from the GA but with stricter constraints, inertia, and an added
+        # locality attribute now
+        for j in range(len(chord)):
+            for k in range(j+1, len(chord)):
+                interval = abs(chord[j] - chord[k])
+                intervalType = interval%12
+
+                # interval types with associated fitness vals
+                # these vals are all just placeholders that sounded fine
+                # enough to me, but if you find better vals,
+                # just swap them in the global vars
+                if intervalType in [3, 4]:      #maj/min thirds
+                    fitness += CHORD_THIRD_WGT
+                elif intervalType in [8, 9]:    #maj/min sixths
+                    fitness += CHORD_SIXTH_WGT 
+                elif intervalType == 7:         #perfect fifth
+                    fitness += CHORD_FIFTH_WGT 
+                elif intervalType == 0 and interval == 12:  #octave
+                    fitness += CHORD_OCTAVE_WGT 
+                elif intervalType in [1, 2]:    #maj/min seconds
+                    fitness += CHORD_CLUSTER_WGT 
+                elif intervalType == 6:         #tritone
+                    fitness += CHORD_TRITONE_WGT 
+    
+    # now we have all the info for the chord quality, we 
+    # need to evaluate the leading voices for further quality
+    leadingVoiceFitBonus = leadVoiceEval(midiComp)
+    fitness += leadingVoiceFitBonus
+    return fitness
+
+# because we're looking at basing a lot of this PSO double pass
+# system on the chord quality of all the voices combined, this func
+# that evaluates unifrom chord type is crucial. 
+def idChord(notes):
+    # change whatever note is to a pitch class, so it works
+    # for any octave
+    pitch = [int(n)%12 for n in notes]
+    pitchSet = set(pitch)
+    bassPitch = int(notes[3])%12
+    bestChord = 'Unknown'
+    bestScore = -float('inf')
+
+    # try all the different diatonic chords setup globally and see how 
+    # well each one matches
+    for chordType, (rootPitch, thirdPitch, fifthPitch) in DIATONIC_CHORDS.items():
+        chordSet = {rootPitch, thirdPitch, fifthPitch}
+
+        # see how many of the four voices land on chord tones vs. 
+        # non chord tones to see where we're at as of now
+        chords = len(pitchSet & chordSet)
+        nonChords = len(pitchSet - chordSet)
+
+        # setup a base score, where chords present are wieghted heavier
+        # and positively while the opposite is true for non chords
+        chordScore = chords*ID_CHORDS_WGT + nonChords*ID_NONCHORDS_WGT
+
+        # the bass usually gives a super solid idea of what the root
+        # should be for a chord, so go based off that usually.
+        if bassPitch == rootPitch:
+            chordScore += ID_BASS_ROOT_WGT
+        elif bassPitch == thirdPitch or bassPitch == fifthPitch:
+            chordScore += ID_BASS_INV_WGT
+        else:
+            chordScore += ID_BASS_OFF_WGT
+
+        # extra points if we form a complete triad!
+        if chords == 3:
+            chordScore += ID_TRIAD_WGT
+
+        # now check our best, and if our local chord score is better,
+        # then replace it!
+        if chordScore > bestScore:
+            bestScore = chordScore
+            bestChord = chordType
+
+    # if the chord score isnt high enough for the best, then we keep it as unknown
+    # and move on
+    if bestScore < ID_MIN_CONF:
+        return 'Unknown'
+    
+    # now return whatever our new (or old) best chord is
+    return bestChord
+
+# NOW, we have the main stage 2 PSO driver, which is where it looks at how
+# the progression is on a beat by beat basis and on a measure by measure basis
+# by looking at if the progression spans across measures, as that means the stage 2
+# bread and butter, measure reordering, actually matters in the end.
+def progAnalyzer(midiComp):
+    melody = midiComp['melody']
+    upper = midiComp['upper']
+    middle = midiComp['middle']
+    bass = midiComp['bass']
+    fitness = 0.0
+
+    # now we need to build a list of chord types but using ALL
+    # of the voices so we ca evaluate chord quality across
+    # multiple voices, not just bass like in my previous version
+    chordTypes = []
+    for i in range(TOTAL_NOTES):
+        # get the chord across all voices and append it to the chord types
+        chord = [melody[i], upper[i], middle[i], bass[i]]
+        chordTypes.append(idChord(chord))
+
+    # now we can kinda "collapse" neighboring chords into a singular event
+    # so instead of looking at two seperate chords as a progression instance,
+    # we have on progression instance that contains two chords.
+    progs = []
+    for i, c in enumerate(chordTypes):
+        if not progs or progs[-1][0] != c:
+            progs.append((c, i))
+
+    # now we have a helper func def to see if the chord prog instance
+    # we just made actually spans across a measure
+    def progAcrossMeasures(progInstance):
+        start = progInstance[0][1]
+        end = progInstance[-1][1]
+        startMeasure = start // BEATS_PER_MEASURE
+        endMeasure = end // BEATS_PER_MEASURE
+        return startMeasure != endMeasure
+    
+    # 2 chord span evaluator part
+    # cant be last note plus another so minus one
+    for i in range(len(progs)-1):
+        # get the prog instance window
+        progWindow = progs[i:i+2]
+
+        # get the prog from the window now based on how many chords were looking at
+        prog = (progWindow[0][0], progWindow[1][0])
+        
+        # now see if we apply a bonus for a prog across measures too!
+        spanBonus = prog2_map.get(prog, 0)
+        if spanBonus and progAcrossMeasures(progWindow):
+            spanBonus += PROG_QUALITY_2
+        fitness += spanBonus
+
+    # 3 chord span evaluator part
+    # cant be last note plus another so minus two
+    for i in range(len(progs)-2):
+        # get the prog instance window
+        progWindow = progs[i:i+3]
+
+        # get the prog from the window now based on how many chords were looking at
+        prog = (progWindow[0][0], progWindow[1][0], progWindow[2][0])
+        
+        # now see if we apply a bonus for a prog across measures too!
+        spanBonus = prog3_map.get(prog, 0)
+        if spanBonus and progAcrossMeasures(progWindow):
+            spanBonus += PROG_QUALITY_3
+        fitness += spanBonus
+
+
+    # 4 chord span evaluator part
+    # cant be last note plus another so minus three
+    for i in range(len(progs)-3):
+        # get the prog instance window
+        progWindow = progs[i:i+4]
+
+        # get the prog from the window now based on how many chords were looking at
+        prog = (progWindow[0][0], progWindow[1][0], progWindow[2][0], progWindow[3][0])
+        
+        # now see if we apply a bonus for a prog across measures too!
+        spanBonus = prog4_map.get(prog, 0)
+        if spanBonus and progAcrossMeasures(progWindow):
+            spanBonus += PROG_QUALITY_4
+        fitness += spanBonus
+
+    # finally return fitness at the end for this progression
+    return fitness
+
 
 # ***************************************************************
 # ----------------------- GA GENOME EVOLOUTION ------------------------------
@@ -451,82 +904,260 @@ def evolveMusicGenome():
 
 
 # ***************************************************************
-# ----------------------- PSO CHORD STUFF ------------------------------
+# ----------------------- PSO CHORD APPLY STUFF ------------------------------
 # ***************************************************************
-# ...
+# to make thigns simpler after I kept on breaking this code for some reason
+# with the addition of the STAGE 2 PSO stuff added on, I made a func def that
+# just auto calls all the stage 2 stuff which for some reason helped stuff not break anymore
+# think I was just messing up part of the call somewhere or something.
+def stage2FitnessEasyCall(midiComp):
+    fitness = 0.0
+    fitness += progAnalyzer(midiComp)
+    fitness += leadVoiceEval(midiComp)
+    return fitness
+
+# heres a function to actually apply all the chord adjustments made from the stage 1
+# PSO passthrough
+def applyStage1(musicGenome, particle):
+    stage1Result = {}
+
+    # go through each voice
+    for voice in ['melody', 'upper', 'middle', 'bass']:
+        # get the midi for the music genome for this respective voice
+        midi = genomeToMIDI(getattr(musicGenome, voice), voice)
+
+        # round the particle adjustments to whatever the nearest int rounded
+        # semitone is. I had a lot of weird behavior with this part so I applied a
+        # lot of rounding here
+        adjusted = particle.pos[voice]
+        adjustedMidi = midi + np.round(adjusted).astype(int)
+
+        # get the new ranges based on the current voice
+        minRange, maxRange = VOICES_RANGE[voice]
+
+        # snap each note that has been adjusted to the nearest in scle
+        # note with the help of the earlier helper function
+        finalMidi = []
+        for note in adjustedMidi:
+            finalMidi.append(scaleSnapper(note, minRange, maxRange))
+
+        stage1Result[voice] = np.array(finalMidi, dtype=int)
+
+    # ALSO, reagardless of what the chord optimizer found we need to resovle
+    # to our preffered end note, so do that here based on whatever is set globally.
+    for voice in ['melody', 'upper', 'middle', 'bass']:
+        stage1Result[voice][-1] = END_NOTES[voice]
+
+    # return the result of stage 1 finally
+    return stage1Result
+
+# now heres the function to apply stage 2 cleanly to reduce complexity later in
+# the PSO main work loops
+def applyStage2(musicGenome, particle):
+    stage2Result = {}
+
+    # we need to find whatever the last measure as thats the one that
+    # had its last note changed to resolve to our ideal end notes set globally,
+    # so keep this one where it is basically
+    lastMeasure = MEASURES-1
+
+    # now we have to filter the order of the particle to try out
+    # a new ordering but def keep the last measure as the last one, 
+    # so we still resolve to our favored end chord
+    nonFinalOrder = [measure for measure in particle.order if measure != lastMeasure]
+    finalOrder = nonFinalOrder+[lastMeasure]
+
+    # now go through each voice
+    for voice in ['melody', 'upper', 'middle', 'bass']:
+        midi = genomeToMIDI(getattr(musicGenome, voice), voice)
+
+        # rebuild the line over each measure in the new order we just made.
+        reordered = []
+        for measure in finalOrder:
+            # get the starting beat of the measure
+            start = measure * BEATS_PER_MEASURE
+
+            # get the ending beat of the measure
+            end = (measure+1) * BEATS_PER_MEASURE
+
+            # now place it in the reordered measure
+            reordered.extend(midi[start:end])
+
+        # now we need to put all our stage2results in into the array for each voice
+        stage2Result[voice] = np.array(reordered, dtype=int)
+
+    # finally return the final stage 2 result
+    return stage2Result
 
 # ***************************************************************
-# ----------------------- VOICE PLOT ------------------------------
+# ----------------------- PSO STAGE !1! MAIN LOOP ------------------------------
 # ***************************************************************
+# alright, heres the part where we actually go through all of the PSO stage 1 funcs
+# and actually optimize the chords and do the real PSO loop work.
+def stage1PSOWork(musicGenome):
+    # init our swarm var for the PSO work, and have it ahve the right
+    # number of particles based on our global vars
+    swarm = [stage1Particle() for _ in range(PSO_S1_PARTICLES)]
 
-def plotVoices(genome, title='Voice Lines'):
-    VOICE_COLORS = {
-        'melody': '#E63946',   # red
-        'upper':  '#2A9D8F',   # teal
-        'middle': '#E9C46A',   # yellow
-        'bass':   '#457B9D',   # blue
-    }
+    # now we to store our global best positon and fitness as a global
+    # snapshot of whats there. The actual content might change, so using 
+    # a reference could absoloutely break this. I've never experienced that though...
+    globalBestPos = None
+    globalBestFit = -float('inf')
 
-    melodyMIDI = genomeToMIDI(genome.melody, 'melody')
-    upperMIDI  = genomeToMIDI(genome.upper,  'upper')
-    middleMIDI = genomeToMIDI(genome.middle, 'middle')
-    bassMIDI   = genomeToMIDI(genome.bass,   'bass')
+    # do the first evaluation pass so we can do the PSO stuff right
+    for particle in swarm:
+        # adjust the chords and get the fitness of the particle
+        chordsAdjusted = applyStage1(musicGenome, particle)
+        particle.fitness = stage1ChordOptimize(chordsAdjusted)
 
-    voiceData = {
-        'melody': melodyMIDI,
-        'upper':  upperMIDI,
-        'middle': middleMIDI,
-        'bass':   bassMIDI,
-    }
+        # if our new particle fitness we found is better than that
+        # particle's known best, change it
+        if particle.fitness > particle.pBestFit:
+            particle.pBestFit = particle.fitness
+            particle.pBestPos = {k: v.copy() for k, v in particle.pos.items()}
 
-    # overall MIDI range across all voices
-    allNotes = np.concatenate(list(voiceData.values()))
-    yMin = int(allNotes.min()) - 1
-    yMax = int(allNotes.max()) + 1
+        # if our new particle fitness we found is better than our
+        # current global best, than change it to whatever that is
+        if particle.fitness > globalBestFit:
+            globalBestFit = particle.fitness
+            globalBestPos = {k: v.copy() for k, v in particle.pos.items()}
 
-    fig, ax = plt.subplots(figsize=(14, 5))
+    # Now that we've done our initial evaluation and setup, we 
+    # can now do the main PSO work loop here!
+    for iterartion in range(PSO_S1_ITERATIONS):
+        # heres the adaptive inertia value, where it'll change from high to low,
+        # which will encourage more exploration at the start to lower at the end.
+        # using the fucntion below to find this inertia value. This helped a ton when
+        # added this as oppossed to the initial versions
+        inertia = PSO_INERTIA_START - ((PSO_INERTIA_START-PSO_INERTIA_END) * iterartion/PSO_S1_ITERATIONS)
 
-    for voiceName, midiNotes in voiceData.items():
-        color = VOICE_COLORS[voiceName]
-        for beat, midiNote in enumerate(midiNotes):
-            rect = mpatches.FancyBboxPatch(
-                (beat + 0.05, midiNote - 0.45),
-                0.9, 0.9,
-                boxstyle='round,pad=0.05',
-                linewidth=0,
-                facecolor=color,
-                alpha=0.85,
-            )
-            ax.add_patch(rect)
+        # now go through each particle in the swarm
+        for particle in swarm:
+            # and for each particle go through each voice
+            for voice in ['melody', 'upper', 'middle', 'bass']:
+                # make two totally random note arrays
+                random1 = np.random.random(TOTAL_NOTES)
+                random2 = np.random.random(TOTAL_NOTES)
 
-    # beat grid lines
-    for beat in range(TOTAL_NOTES + 1):
-        ax.axvline(beat, color='#cccccc', linewidth=0.4, zorder=0)
+                # then do a cognitive and social calculation for going towards the 
+                # local and global best based on the random note arrays we just made
+                cognitive = 2.0*random1 * (particle.pBestPos[voice] - particle.pos[voice])
+                social = 2.0*random2 * (globalBestPos[voice] - particle.pos[voice])
 
-    # measure bar lines
-    for m in range(MEASURES + 1):
-        ax.axvline(m * BEATS_PER_MEASURE, color='#888888', linewidth=1.0, zorder=1)
+                # see how quickly or with what velocity it moves towards these new positions
+                # aka how many notes it actually moves towards the local or global bests
+                particle.velocity[voice] = inertia * particle.velocity[voice] + cognitive + social
+                particle.pos[voice] = particle.pos[voice] + particle.velocity[voice]
 
-    ax.set_xlim(0, TOTAL_NOTES)
-    ax.set_ylim(yMin, yMax + 1)
-    ax.set_xlabel('Beat')
-    ax.set_ylabel('MIDI Pitch')
-    ax.set_title(title)
+                # now we need to make sure whatever our adjustments were from in 
+                # between the global/local bests, that it puts us in a legal
+                # range within our limits and scale we want.
+                particle.pos[voice] = np.clip(particle.pos[voice], -PSO_S1_MAX_MOVE, PSO_S1_MAX_MOVE)
 
-    # y-tick labels as note names
-    pitchRange = range(yMin, yMax + 2)
-    ax.set_yticks(list(pitchRange))
-    ax.set_yticklabels([pitch.Pitch(midi=p).nameWithOctave if yMin <= p <= yMax + 1 else '' for p in pitchRange], fontsize=7)
+            # now we need to reevaluate after moving things based on the PSO logic
+            chordsAdjusted = applyStage1(musicGenome, particle)
+            particle.fitness = stage1ChordOptimize(chordsAdjusted)
 
-    # x-ticks at measure starts
-    ax.set_xticks([m * BEATS_PER_MEASURE for m in range(MEASURES + 1)])
-    ax.set_xticklabels([f'M{m+1}' if m < MEASURES else '' for m in range(MEASURES + 1)])
+            # if our new particle fitness we found is better than that
+            # particle's known best, change it
+            if particle.fitness > particle.pBestFit:
+                particle.pBestFit = particle.fitness
+                particle.pBestPos = {k: v.copy() for k, v in particle.pos.items()}
 
-    legend_patches = [mpatches.Patch(color=VOICE_COLORS[v], label=v.capitalize()) for v in VOICE_COLORS]
-    ax.legend(handles=legend_patches, loc='upper right')
+            # if our new particle fitness we found is better than our
+            # current global best, than change it to whatever that is
+            if particle.fitness > globalBestFit:
+                globalBestFit = particle.fitness
+                globalBestPos = {k: v.copy() for k, v in particle.pos.items()}
 
-    plt.tight_layout()
-    plt.show()
+    # now we look and see what our best particle was and what adjustments it made,
+    # then return that particle as a musicGenome!
+    bestParticle = stage1Particle()
+    bestParticle.pos = globalBestPos
+    finalStage1Composition = applyStage1(musicGenome, bestParticle)
+    return midiToGenome(finalStage1Composition)
+
+
+# ***************************************************************
+# ----------------------- PSO STAGE !2! MAIN LOOP ------------------------------
+# ***************************************************************
+# alright, heres the part where we actually go through all of the PSO stage 2 funcs
+# and actually "optimize" the measure order and do the real PSO stage 2 loop work.
+def stage2PSOWork(musicGenome):
+    # init our swarm var for the PSO work, and have it ahve the right
+    # number of particles based on our global vars
+    swarm = [stage2Particle() for _ in range(PSO_S2_PARTICLES)]
+
+    # now we to store our global best positon and fitness as a global
+    # snapshot of whats there. The actual content might change, so using 
+    # a reference could absoloutely break this. I've never experienced that though...
+    globalBestOrder = None
+    globalBestFit = -float('inf')
+
+    # do the first evaluation pass so we can do the PSO stuff right
+    for particle in swarm:
+        # adjust the measures and get the fitness of the particle
+        measuresAdjusted = applyStage2(musicGenome, particle)
+        particle.fitness = stage2FitnessEasyCall(measuresAdjusted)
+
+        # if our new particle fitness we found is better than that
+        # particle's known best, change it
+        if particle.fitness > particle.pBestFit:
+            particle.pBestFit = particle.fitness
+            particle.pBestOrder = particle.order.copy()
+
+        # if our new particle fitness we found is better than our
+        # current global best, than change it to whatever that is
+        if particle.fitness > globalBestFit:
+            globalBestFit = particle.fitness
+            globalBestOrder = particle.order.copy()
+
+    # Now that we've done our initial evaluation and setup, we 
+    # can now do the main PSO work loop here!
+    for iterartion in range(PSO_S2_ITERATIONS):
+        # heres the adaptive inertia value, where it'll change from high to low,
+        # which will encourage more exploration at the start to lower at the end.
+        # using the fucntion below to find this inertia value. This helped a ton when
+        # added this as oppossed to the initial versions
+        inertia = PSO_INERTIA_START - ((PSO_INERTIA_START-PSO_INERTIA_END) * iterartion/PSO_S2_ITERATIONS)
+
+        # now go through each particle in the swarm
+        for particle in swarm:
+            # move toward the personal best for this particle
+            particle.moveBetter(particle.pBestOrder, prob=(1-inertia) * 0.5)
+
+            # move toward the global best for this particle (not as heavily weighted as personal best)
+            particle.moveBetter(globalBestOrder, prob=(1-inertia) * 0.2)
+
+            # get a random number with our inertia to determine how far it moves
+            # based on the local/global bests
+            if random.random() < inertia*0.3:
+                particle.swap()
+
+            # adjust the measures and get the fitness of the particle
+            measuresAdjusted = applyStage2(musicGenome, particle)
+            particle.fitness = stage2FitnessEasyCall(measuresAdjusted)
+
+            # if our new particle fitness we found is better than that
+            # particle's known best, change it
+            if particle.fitness > particle.pBestFit:
+                particle.pBestFit = particle.fitness
+                particle.pBestOrder = particle.order.copy()
+
+            # if our new particle fitness we found is better than our
+            # current global best, than change it to whatever that is
+            if particle.fitness > globalBestFit:
+                globalBestFit = particle.fitness
+                globalBestOrder = particle.order.copy()
+
+    # now we look and see what our best particle was and what adjustments it made,
+    # then return that particle as a musicGenome!
+    bestParticle = stage2Particle()
+    bestParticle.order = globalBestOrder
+    finalStage2Composition = applyStage2(musicGenome, bestParticle)
+    return midiToGenome(finalStage2Composition)
+
 
 # ***************************************************************
 # ----------------------- MAIN LOOP ------------------------------
@@ -536,6 +1167,12 @@ def plotVoices(genome, title='Voice Lines'):
 
 # run the GA evolution loop
 evolvedComp = evolveMusicGenome()
+
+# run the stage 1 pso work loop
+chordsOptimizedComp = stage1PSOWork(evolvedComp)
+
+# run the stage 2 pso work loop
+finalComposition = stage2PSOWork(chordsOptimizedComp)
 
 # now translate the MIDI to music21 format
 melodyOnly = genomeToMus21(evolvedComp.melody, 'melody')
@@ -587,14 +1224,39 @@ fullComp.append(melodyOnly)
 fullComp.append(upperOnly)
 fullComp.append(middleOnly)
 fullComp.append(bassOnly)
-fullComp.write('midi', 'full.mid')
+fullComp.write('midi', 'GA_ONLY.mid')
 
-# plot all four voice lines
-plotVoices(evolvedComp, title='Evolved Composition — Voice Lines')
+# Stage 1 PSO:::
+# now for the PSO stage 1 for each line genome to music 21 format
+S1melody = genomeToMus21(chordsOptimizedComp.melody, 'melody')
+S1upper = genomeToMus21(chordsOptimizedComp.upper, 'upper')
+S1middle = genomeToMus21(chordsOptimizedComp.middle, 'middle')
+S1bass = genomeToMus21(chordsOptimizedComp.bass, 'bass')
 
-# run the PSO evolution chord loop
-# ...
-# this broke so I'll add this back later.
+# now for stage 1 music21 to midi
+S1Full = stream.Score()
+S1Full.insert(0, instrument.Piano())
+S1Full.append(S1melody)
+S1Full.append(S1upper)
+S1Full.append(S1middle)
+S1Full.append(S1bass)
+S1Full.write('midi', 'Stage1.mid')
+
+# Stage 2 PSO:::
+# now for the PSO stage 2 for each line genome to music 21 format
+S2melody = genomeToMus21(finalComposition.melody, 'melody')
+S2upper = genomeToMus21(finalComposition.upper, 'upper')
+S2middle = genomeToMus21(finalComposition.middle, 'middle')
+S2bass = genomeToMus21(finalComposition.bass, 'bass')
+
+# now for stage 2 music21 to midi
+S2Full = stream.Score()
+S2Full.insert(0, instrument.Piano())
+S2Full.append(S2melody)
+S2Full.append(S2upper)
+S2Full.append(S2middle)
+S2Full.append(S2bass)
+S2Full.write('midi', 'FINAL_S1_and_S2.mid')
 
 
 
