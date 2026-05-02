@@ -1,6 +1,9 @@
 from music21 import *
 import random
 import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
+import os
 
 # ***************************************************************
 # ----------------------- GLOBAL VARS ------------------------------
@@ -1160,6 +1163,233 @@ def stage2PSOWork(musicGenome):
 
 
 # ***************************************************************
+# ----------------------- GRAPHS FOLDER + VOICE PLOTTER ------------------------------
+# ***************************************************************
+
+GRAPHS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'Graphs')
+MIDI_DIR   = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'MIDI')
+
+VOICE_COLORS = {
+    'melody': '#E63946',
+    'upper':  '#2A9D8F',
+    'middle': '#E9C46A',
+    'bass':   '#457B9D',
+}
+
+def plotVoices(genome, title, savePath):
+    voiceData = {
+        'melody': genomeToMIDI(genome.melody, 'melody'),
+        'upper':  genomeToMIDI(genome.upper,  'upper'),
+        'middle': genomeToMIDI(genome.middle, 'middle'),
+        'bass':   genomeToMIDI(genome.bass,   'bass'),
+    }
+
+    allNotes = np.concatenate(list(voiceData.values()))
+    yMin = int(allNotes.min()) - 1
+    yMax = int(allNotes.max()) + 1
+
+    fig, ax = plt.subplots(figsize=(14, 5))
+
+    for voiceName, midiNotes in voiceData.items():
+        color = VOICE_COLORS[voiceName]
+        for beat, midiNote in enumerate(midiNotes):
+            rect = mpatches.FancyBboxPatch(
+                (beat + 0.05, midiNote - 0.45),
+                0.9, 0.9,
+                boxstyle='round,pad=0.05',
+                linewidth=0,
+                facecolor=color,
+                alpha=0.85,
+            )
+            ax.add_patch(rect)
+
+    for beat in range(TOTAL_NOTES + 1):
+        ax.axvline(beat, color='#cccccc', linewidth=0.4, zorder=0)
+
+    for m in range(MEASURES + 1):
+        ax.axvline(m * BEATS_PER_MEASURE, color='#888888', linewidth=1.0, zorder=1)
+
+    ax.set_xlim(0, TOTAL_NOTES)
+    ax.set_ylim(yMin, yMax + 1)
+    ax.set_xlabel('Beat')
+    ax.set_ylabel('MIDI Pitch')
+    ax.set_title(title)
+
+    pitchRange = range(yMin, yMax + 2)
+    ax.set_yticks(list(pitchRange))
+    ax.set_yticklabels([pitch.Pitch(midi=p).nameWithOctave for p in pitchRange], fontsize=7)
+
+    ax.set_xticks([m * BEATS_PER_MEASURE for m in range(MEASURES + 1)])
+    ax.set_xticklabels([f'M{m+1}' if m < MEASURES else '' for m in range(MEASURES + 1)])
+
+    legend_patches = [mpatches.Patch(color=VOICE_COLORS[v], label=v.capitalize()) for v in VOICE_COLORS]
+    ax.legend(handles=legend_patches, loc='upper right')
+
+    plt.tight_layout()
+    os.makedirs(os.path.dirname(savePath), exist_ok=True)
+    plt.savefig(savePath, dpi=150)
+    plt.close(fig)
+    print(f"  Saved plot: {savePath}")
+
+
+# ***************************************************************
+# ----------------------- GA WEIGHT EXPERIMENTS ------------------------------
+# ***************************************************************
+# Each config tweaks a different aspect of the horizontal / harmonic
+# fitness weights relative to the baseline to see how the GA responds.
+
+GA_EXPERIMENT_CONFIGS = {
+    'Baseline': {
+        'SAME_NOTE_WGT': 0,  'UNIQUE_WGT': 4,   'STEPWISE_WGT': 4,
+        'SM_JUMP_WGT': 2,    'MD_JUMP_WGT': 0,  'LG_JUMP_WGT': -3,
+        'ALTING_WGT': -5,    'CONTOUR_WGT': 2,
+        'UNISON_WGT': -15,   'THIRD_WGT': 12,   'SIXTH_WGT': 10,
+        'FOURTH_WGT': 6,     'FIFTH_WGT': 8,    'SEVENTH_WGT': 3,
+        'SECOND_WGT': -5,    'TRITONE_WGT': -10,
+    },
+    'Smoothness-Heavy': {
+        'SAME_NOTE_WGT': 0,  'UNIQUE_WGT': 4,   'STEPWISE_WGT': 8,
+        'SM_JUMP_WGT': 0,    'MD_JUMP_WGT': -2, 'LG_JUMP_WGT': -8,
+        'ALTING_WGT': -5,    'CONTOUR_WGT': 2,
+        'UNISON_WGT': -15,   'THIRD_WGT': 12,   'SIXTH_WGT': 10,
+        'FOURTH_WGT': 6,     'FIFTH_WGT': 8,    'SEVENTH_WGT': 3,
+        'SECOND_WGT': -5,    'TRITONE_WGT': -10,
+    },
+    'Variety-Heavy': {
+        'SAME_NOTE_WGT': -3, 'UNIQUE_WGT': 8,   'STEPWISE_WGT': 4,
+        'SM_JUMP_WGT': 2,    'MD_JUMP_WGT': 1,  'LG_JUMP_WGT': -3,
+        'ALTING_WGT': -5,    'CONTOUR_WGT': 2,
+        'UNISON_WGT': -15,   'THIRD_WGT': 12,   'SIXTH_WGT': 10,
+        'FOURTH_WGT': 6,     'FIFTH_WGT': 8,    'SEVENTH_WGT': 3,
+        'SECOND_WGT': -5,    'TRITONE_WGT': -10,
+    },
+    'Contour-Heavy': {
+        'SAME_NOTE_WGT': 0,  'UNIQUE_WGT': 4,   'STEPWISE_WGT': 4,
+        'SM_JUMP_WGT': 2,    'MD_JUMP_WGT': 0,  'LG_JUMP_WGT': -3,
+        'ALTING_WGT': -5,    'CONTOUR_WGT': 7,
+        'UNISON_WGT': -15,   'THIRD_WGT': 12,   'SIXTH_WGT': 10,
+        'FOURTH_WGT': 6,     'FIFTH_WGT': 8,    'SEVENTH_WGT': 3,
+        'SECOND_WGT': -5,    'TRITONE_WGT': -10,
+    },
+    'Harmonic-Heavy': {
+        'SAME_NOTE_WGT': 0,  'UNIQUE_WGT': 4,   'STEPWISE_WGT': 4,
+        'SM_JUMP_WGT': 2,    'MD_JUMP_WGT': 0,  'LG_JUMP_WGT': -3,
+        'ALTING_WGT': -5,    'CONTOUR_WGT': 2,
+        'UNISON_WGT': -20,   'THIRD_WGT': 20,   'SIXTH_WGT': 18,
+        'FOURTH_WGT': 10,    'FIFTH_WGT': 14,   'SEVENTH_WGT': 1,
+        'SECOND_WGT': -10,   'TRITONE_WGT': -18,
+    },
+    'Anti-Repeat-Heavy': {
+        'SAME_NOTE_WGT': -3, 'UNIQUE_WGT': 4,   'STEPWISE_WGT': 4,
+        'SM_JUMP_WGT': 2,    'MD_JUMP_WGT': 0,  'LG_JUMP_WGT': -3,
+        'ALTING_WGT': -14,   'CONTOUR_WGT': 2,
+        'UNISON_WGT': -15,   'THIRD_WGT': 12,   'SIXTH_WGT': 10,
+        'FOURTH_WGT': 6,     'FIFTH_WGT': 8,    'SEVENTH_WGT': 3,
+        'SECOND_WGT': -5,    'TRITONE_WGT': -10,
+    },
+}
+
+# how many GA generations to run per experiment config (kept short for speed)
+GA_EXPERIMENT_GENS = 300
+
+
+def _evolveMusicGenomeCustom(weights, generations):
+    """Run the GA with a custom weight config. Temporarily swaps module-level
+    weight globals so the existing fullCompFitness function picks them up,
+    then restores the originals when done."""
+    import sys
+    mod = sys.modules[__name__]
+
+    saved = {k: getattr(mod, k) for k in weights}
+    for k, v in weights.items():
+        setattr(mod, k, v)
+
+    genome = musicGenome()
+    genome.fitness = fullCompFitness(genome)
+    history = [genome.fitness]
+
+    try:
+        for _ in range(generations):
+            child = genome.copy()
+            child.mutate()
+            child.fitness = fullCompFitness(child)
+            if child.fitness > genome.fitness:
+                genome = child
+            history.append(genome.fitness)
+    finally:
+        for k, v in saved.items():
+            setattr(mod, k, v)
+
+    return genome, history
+
+
+def runGAWeightExperiments(generations=GA_EXPERIMENT_GENS):
+    print(f"\n=== Running GA Weight Experiments ({generations} gens each) ===")
+    os.makedirs(GRAPHS_DIR, exist_ok=True)
+
+    results = {}
+    for configName, weights in GA_EXPERIMENT_CONFIGS.items():
+        print(f"  Running config: {configName} ...")
+        genome, history = _evolveMusicGenomeCustom(weights, generations)
+        results[configName] = (genome, history)
+        print(f"    Final fitness: {genome.fitness:.1f}")
+
+    # --- fitness curves ---
+    fig, ax = plt.subplots(figsize=(12, 5))
+    for configName, (_, history) in results.items():
+        ax.plot(history, label=configName)
+    ax.set_xlabel('Generation')
+    ax.set_ylabel('Best Fitness')
+    ax.set_title('GA Weight Experiment — Fitness Over Generations')
+    ax.legend(loc='lower right')
+    plt.tight_layout()
+    curvePath = os.path.join(GRAPHS_DIR, 'GA_Experiment_Curves.png')
+    plt.savefig(curvePath, dpi=150)
+    plt.close(fig)
+    print(f"  Saved: {curvePath}")
+
+    # --- final fitness bar chart ---
+    fig, ax = plt.subplots(figsize=(9, 5))
+    names = list(results.keys())
+    finalFitness = [results[n][0].fitness for n in names]
+    colors = plt.cm.tab10(range(len(names)))
+    ax.bar(names, finalFitness, color=colors)
+    ax.set_ylabel('Final Best Fitness')
+    ax.set_title('GA Weight Experiment — Final Fitness Comparison')
+    ax.set_xticks(range(len(names)))
+    ax.set_xticklabels(names, rotation=20, ha='right')
+    plt.tight_layout()
+    barPath = os.path.join(GRAPHS_DIR, 'GA_Experiment_Bar.png')
+    plt.savefig(barPath, dpi=150)
+    plt.close(fig)
+    print(f"  Saved: {barPath}")
+
+    # --- voice plot + MIDI per config ---
+    os.makedirs(MIDI_DIR, exist_ok=True)
+    for configName, (genome, _) in results.items():
+        safeName = configName.replace(' ', '_').replace('-', '_')
+        voicePath = os.path.join(GRAPHS_DIR, f'GA_Experiment_{safeName}.png')
+        plotVoices(genome, f'GA Experiment: {configName}', voicePath)
+
+        expMelody = genomeToMus21(genome.melody, 'melody')
+        expUpper  = genomeToMus21(genome.upper,  'upper')
+        expMiddle = genomeToMus21(genome.middle, 'middle')
+        expBass   = genomeToMus21(genome.bass,   'bass')
+        expScore  = stream.Score()
+        expScore.insert(0, instrument.Piano())
+        expScore.append(expMelody)
+        expScore.append(expUpper)
+        expScore.append(expMiddle)
+        expScore.append(expBass)
+        midiPath = os.path.join(MIDI_DIR, f'GA_Experiment_{safeName}.mid')
+        expScore.write('midi', midiPath)
+        print(f"  Saved MIDI: {midiPath}")
+
+    print("=== GA Weight Experiments complete ===\n")
+    return results
+
+
+# ***************************************************************
 # ----------------------- MAIN LOOP ------------------------------
 # ***************************************************************
 # heres the main loop for the overall genome generation -> evoloution ->
@@ -1197,25 +1427,26 @@ bassOnly = genomeToMus21(evolvedComp.bass, 'bass')
 # this during my search.
 # -------
 # anways, I want a MIDI file with just the melody:
-melodyOnly.write('midi', 'melody.mid')
+os.makedirs(MIDI_DIR, exist_ok=True)
+melodyOnly.write('midi', os.path.join(MIDI_DIR, 'melody.mid'))
 
 # one with just the upper and melody:
 upperAndMelody = stream.Score()
 upperAndMelody.append(melodyOnly)
 upperAndMelody.append(upperOnly)
-upperAndMelody.write('midi', 'upper.mid')
+upperAndMelody.write('midi', os.path.join(MIDI_DIR, 'upper.mid'))
 
 # one with just the middle and melody:
 middleAndMelody = stream.Score()
 middleAndMelody.append(melodyOnly)
 middleAndMelody.append(middleOnly)
-middleAndMelody.write('midi', 'middle.mid')
+middleAndMelody.write('midi', os.path.join(MIDI_DIR, 'middle.mid'))
 
 # one with just the bass and melody:
 bassAndMelody = stream.Score()
 bassAndMelody.append(melodyOnly)
 bassAndMelody.append(bassOnly)
-bassAndMelody.write('midi', 'bass.mid')
+bassAndMelody.write('midi', os.path.join(MIDI_DIR, 'bass.mid'))
 
 # and finally with all four together BEFORE THE PSO:
 fullComp = stream.Score()
@@ -1224,7 +1455,7 @@ fullComp.append(melodyOnly)
 fullComp.append(upperOnly)
 fullComp.append(middleOnly)
 fullComp.append(bassOnly)
-fullComp.write('midi', 'GA_ONLY.mid')
+fullComp.write('midi', os.path.join(MIDI_DIR, 'GA_ONLY.mid'))
 
 # Stage 1 PSO:::
 # now for the PSO stage 1 for each line genome to music 21 format
@@ -1240,7 +1471,7 @@ S1Full.append(S1melody)
 S1Full.append(S1upper)
 S1Full.append(S1middle)
 S1Full.append(S1bass)
-S1Full.write('midi', 'Stage1.mid')
+S1Full.write('midi', os.path.join(MIDI_DIR, 'Stage1.mid'))
 
 # Stage 2 PSO:::
 # now for the PSO stage 2 for each line genome to music 21 format
@@ -1250,13 +1481,26 @@ S2middle = genomeToMus21(finalComposition.middle, 'middle')
 S2bass = genomeToMus21(finalComposition.bass, 'bass')
 
 # now for stage 2 music21 to midi
-S2Full = stream.Score()
+S2Full = stream.Score()  
 S2Full.insert(0, instrument.Piano())
 S2Full.append(S2melody)
 S2Full.append(S2upper)
 S2Full.append(S2middle)
 S2Full.append(S2bass)
-S2Full.write('midi', 'FINAL_S1_and_S2.mid')
+S2Full.write('midi', os.path.join(MIDI_DIR, 'FINAL_S1_and_S2.mid'))
+
+# ***************************************************************
+# ----------------------- SAVE VOICE PLOTS ------------------------------
+# ***************************************************************
+os.makedirs(GRAPHS_DIR, exist_ok=True)
+plotVoices(evolvedComp,         'GA — Voice Lines',         os.path.join(GRAPHS_DIR, 'GA.png'))
+plotVoices(chordsOptimizedComp, 'Stage1 PSO — Voice Lines', os.path.join(GRAPHS_DIR, 'Stage1.png'))
+plotVoices(finalComposition,    'Final PSO — Voice Lines',  os.path.join(GRAPHS_DIR, 'Final_PSO.png'))
+
+# ***************************************************************
+# ----------------------- GA WEIGHT EXPERIMENT RUN ------------------------------
+# ***************************************************************
+runGAWeightExperiments()
 
 
 
